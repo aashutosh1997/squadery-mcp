@@ -71,6 +71,25 @@ Env vars: `SQUADERY_HOURS`, `SQUADERY_PROJECT`, `SQUADERY_NOTES`,
 on an expired session it exits non-zero with `AUTH FAILED` — wire that to an
 alert so you know to re-run `auth_setup.py`.
 
+## Backfill a date range from git history
+
+`backfill.py` fills in past development work: for each working day (Mon–Fri) in a
+range it appends one task sized to top the day up to a target (default 9h), with
+a description derived from that day's commits in a repo. Existing entries (e.g.
+meetings) are left untouched; days already at the target are skipped. **Dry-run
+by default** — add `--commit` to write.
+
+```bash
+python backfill.py --start 2026-06-01 --end 2026-06-09        # preview
+python backfill.py --start 2026-06-01 --end 2026-06-09 --commit
+python backfill.py --month 2026-06 --commit                   # whole month (capped at today)
+```
+
+Options: `--repo`, `--author` (git author to summarise), `--project`,
+`--category`, `--target-hours`, `--day-start`/`--fri-start` (start hours, UTC),
+`--max-subjects` (commit lines per description), `--fallback` (text for days with
+no commits). Reuses `add_worklog_task` from `squadery_client.py`.
+
 ## Note
 
 This automates your employer's SSO-protected system. Check your IT/security
