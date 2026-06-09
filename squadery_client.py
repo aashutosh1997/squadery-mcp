@@ -139,6 +139,16 @@ def _window(date: str, minutes: int) -> tuple[str, str]:
 
 
 # --- public API ---------------------------------------------------------------
+async def _put_task(squad_id: str, start: str, end: str, task: dict, existing: dict | None) -> None:
+    """Create the day's worklog with `task`, or append `task` to the existing one."""
+    if existing is None:
+        await _graphql("mutation($w:NewWorklogDto!){createWorklog(worklogInput:$w){id}}",
+            {"w": {"squadId": squad_id, "startDate": start, "endDate": end, "tasks": [task]}})
+    else:
+        await _graphql("mutation($t:NewWorklogTaskDto!){addWorklogTask(worklogTaskInput:$t){id}}",
+            {"t": {**task, "worklogId": existing["id"]}})
+
+
 async def log_worklog(date: str, hours: float, project: str = "", notes: str = "",
                       category: str = DEFAULT_CATEGORY, replace: bool = False) -> str:
     """Log `hours` for a day (YYYY-MM-DD). Squadery allows one worklog per
@@ -153,23 +163,34 @@ async def log_worklog(date: str, hours: float, project: str = "", notes: str = "
     task = {"category": category, "description": notes or f"{hours}h on {squad_name}",
             "minutes": minutes, "startTime": start, "endTime": end, "squadId": squad_id}
     existing = await _day_worklog(user_id, squad_id, date)
-
-    if existing is None:
-        await _graphql("mutation($w:NewWorklogDto!){createWorklog(worklogInput:$w){id}}",
-            {"w": {"squadId": squad_id, "startDate": start, "endDate": end, "tasks": [task]}})
-        return f"Logged {hours}h of {category} on '{squad_name}' for {date}."
-
-    old = existing.get("worklogtasks") or []
-    if not replace:
+    old = (existing or {}).get("worklogtasks") or []
+    if existing is not None and not replace:
         raise AlreadyLogged(f"{squad_name} already has a worklog for {date} "
                             f"({sum(t['minutes'] for t in old)}m). Pass replace=true to overwrite.")
-    await _graphql("mutation($t:NewWorklogTaskDto!){addWorklogTask(worklogTaskInput:$t){id}}",
-        {"t": {**task, "worklogId": existing["id"]}})
+    await _put_task(squad_id, start, end, task, existing)
+    if existing is None:
+        return f"Logged {hours}h of {category} on '{squad_name}' for {date}."
     for old_task in old:
         await _graphql("mutation($id:String!){deleteWorklogTask(taskId:$id){message}}",
             {"id": old_task["id"]})
     return (f"Replaced {date}: removed {len(old)} task(s), "
             f"left {hours}h of {category} on '{squad_name}'.")
+
+
+async def add_worklog_task(date: str, minutes: int, project: str = "", notes: str = "",
+                           category: str = DEFAULT_CATEGORY,
+                           start_z: str | None = None, end_z: str | None = None) -> str:
+    """Append a task to a day's worklog (creating the worklog if none exists),
+    leaving any existing tasks untouched. Times default to a 09:00Z window."""
+    user_id = await _user_id()
+    squad_id, squad_name = await _resolve_squad(project, user_id)
+    if start_z is None or end_z is None:
+        start_z, end_z = _window(date, minutes)
+    task = {"category": category, "description": notes or f"{minutes}m on {squad_name}",
+            "minutes": minutes, "startTime": start_z, "endTime": end_z, "squadId": squad_id}
+    existing = await _day_worklog(user_id, squad_id, date)
+    await _put_task(squad_id, start_z, end_z, task, existing)
+    return f"Added {minutes}m of {category} on '{squad_name}' for {date}."
 
 
 async def get_status(date: str | None = None) -> str:
