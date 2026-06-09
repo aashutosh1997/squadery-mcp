@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Local secrets / saved session (never commit auth state)
+.squadery/
+state.json
+*.state.json
+.env
